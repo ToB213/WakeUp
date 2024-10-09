@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>アラーム設定</title>
+  </head>
+  <body>
+    <h1>アラーム設定</h1>
+    <form action="/" method="post">
+      <label for="alarm_time">アラーム時間 (HH:MM):</label>
+      <input type="time" id="alarm_time" name="alarm_time" required />
+      <button type="submit">アラームを設定</button>
+    </form>
+
+    <h2>起きた確認</h2>
+    <form action="/wake_up" method="post">
+      <button type="submit">起きた確認</button>
+    </form>
+  </body>
+</html>
