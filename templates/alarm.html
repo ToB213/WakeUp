@@ -1,7 +1,87 @@
 <!DOCTYPE html>
 <html>
   <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>アラーム設定</title>
+    <style type="text/css">
+      body {
+        font-family: "Arial", sans-serif;
+        background-color: #f4f4f4;
+        margin: 0;
+        padding: 0;
+      }
+
+      h1 {
+        text-align: center;
+        color: #333;
+        margin-top: 20px;
+      }
+
+      form {
+        background-color: #fff;
+        border-radius: 8px;
+        box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        max-width: 400px;
+        margin: 20px auto;
+        padding: 20px;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: bold;
+      }
+
+      input[type="datetime-local"],
+      input[type="file"] {
+        width: 100%;
+        padding: 10px;
+        margin-bottom: 15px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-sizing: border-box;
+      }
+
+      input[type="submit"],
+      button {
+        background-color: #5cb85c;
+        color: white;
+        border: none;
+        padding: 10px 15px;
+        border-radius: 5px;
+        cursor: pointer;
+        width: 100%;
+        font-size: 16px;
+        transition: background-color 0.3s ease;
+      }
+
+      input[type="text"] {
+        width: 100%;
+        padding: 10px;
+        margin-bottom: 15px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        box-sizing: border-box;
+      }
+
+      input[type="submit"]:hover,
+      button:hover {
+        background-color: #4cae4c;
+      }
+
+      h2 {
+        text-align: center;
+        color: #666;
+        margin-top: 30px;
+      }
+
+      @media (max-width: 500px) {
+        form {
+          width: 90%;
+        }
+      }
+    </style>
   </head>
   <body>
     <h1>アラームを設定</h1>
@@ -27,7 +107,7 @@
     </form>
 
     <h2>データベースの作成</h2>
-    <form action="/create_db" method="post">
+    <form action="create_db" method="post">
       <button type="submit">データベースの作成</button>
     </form>
   </body>

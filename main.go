@@ -78,6 +78,7 @@ func handleFormSubmission(w http.ResponseWriter, r *http.Request) {
 
 func createDBHandler(w http.ResponseWriter, r *http.Request) {
 	InitDB()
+	tmpl.Execute(w, nil)
 	log.Println("データベースが初期化されました。")
 }
 
