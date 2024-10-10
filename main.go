@@ -14,83 +14,138 @@ import (
 )
 
 var db *sql.DB
-
 var tmpl = template.Must(template.ParseFiles("./templates/alarm.html"))
 
 func main() {
-	var err error
-	db, err = sql.Open("sqlite3", "./wake_up.db")
-	if err != nil {
-		log.Fatal(err)
-	}
+	InitDB()
 	defer db.Close()
 
-	http.HandleFunc("/", setAlarmHandler)
-
-	http.HandleFunc("/wake_up", wakeUpHandler)
+	http.HandleFunc("/", InputHandler)
+	http.HandleFunc("/wake_up", WakeUpHandler) // 起きた確認のハンドラー
 
 	fmt.Println("サーバーを開始します: http://localhost:8080")
 	http.ListenAndServe(":8080", nil)
 }
 
-func setAlarmHandler(w http.ResponseWriter, r *http.Request) {
+func InitDB() {
+	var err error
+	db, err = sql.Open("sqlite3", "./wake_up.db")
+	if err != nil {
+		log.Fatal(err)
+	}
+	_, err = db.Exec(`
+		CREATE TABLE IF NOT EXISTS alarms (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			alarm_time TEXT NOT NULL,
+			dir_path TEXT NOT NULL,
+			status INTEGER NOT NULL DEFAULT 0 -- 0: 未確認, 1: 確認済み, 2: 削除済み
+		);
+	`)
+	if err != nil {
+		log.Fatal("alarmsテーブルの作成に失敗しました: ", err)
+	}
+	fmt.Println("データベースが初期化されました。")
+}
+
+func InputHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost {
-		alarmTime := r.FormValue("alarm_time")
+		handleFormSubmission(w, r)
+	} else {
+		tmpl.Execute(w, nil)
+	}
+}
 
-		_, err := db.Exec("INSERT INTO alarms (time, status) VALUES (?, 0)", alarmTime)
-		if err != nil {
-			log.Fatal(err)
-		}
+func handleFormSubmission(w http.ResponseWriter, r *http.Request) {
+	alarmTime := r.FormValue("alarm_time")
+	dirPath := r.FormValue("dir_path")
+	status := 0
 
-		go func() {
-			now := time.Now()
-			alarm, _ := time.Parse("15:04", alarmTime) 
-			alarmToday := time.Date(now.Year(), now.Month(), now.Day(), alarm.Hour(), alarm.Minute(), 0, 0, now.Location())
-
-			time.Sleep(time.Until(alarmToday))
-
-			var status int
-			err = db.QueryRow("SELECT status FROM alarms ORDER BY id DESC LIMIT 1").Scan(&status)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			if status == 0 {
-				err = deleteFilesInDirectory("~/src/wp/test/sample.txt")
-				if err != nil {
-					log.Fatal("ファイル削除中にエラーが発生しました:", err)
-				}
-				fmt.Println("時間内に起きなかったため、ファイルを削除しました。")
-			}
-		}()
+	// データベースにアラームとディレクトリパスを登録
+	_, err := db.Exec("INSERT INTO alarms (alarm_time, dir_path, status) VALUES (?, ?, ?)", alarmTime, dirPath, status)
+	if err != nil {
+		log.Println("INSERTに失敗しました: ", err)
+		http.Error(w, "データベースへの挿入に失敗しました", http.StatusInternalServerError)
+		return
 	}
 
+	log.Println("アラームを登録しました: ", alarmTime)
+	log.Println("削除対象のディレクトリ: ", dirPath)
+
+	// アラームを設定して、指定された時間後にディレクトリ内のファイルを削除
+	go setAlarm(alarmTime, dirPath, status)
 	tmpl.Execute(w, nil)
 }
 
-func wakeUpHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method == http.MethodPost {
-		_, err := db.Exec("UPDATE alarms SET status = 1 WHERE id = (SELECT MAX(id) FROM alarms)")
-		if err != nil {
-			log.Fatal(err)
-		}
+func setAlarm(alarmTime string, dirPath string, status int) {
+	// アラーム時間を解析
+	parsedAlarmTime, err := time.Parse("2006-01-02T15:04", alarmTime)
+	if err != nil {
+		log.Println("時間の解析に失敗しました: ", err)
+		return
+	}
+	log.Printf("アラームをセットしました: %s", alarmTime)
 
-		fmt.Fprintln(w, "起床確認されました！")
+	now := time.Now()
+	alarmToday := time.Date(now.Year(), now.Month(), parsedAlarmTime.Day(), parsedAlarmTime.Hour(), parsedAlarmTime.Minute(), 0, 0, time.Local)
+
+	// アラーム時間までスリープ
+	if time.Until(alarmToday) > 0 {
+		time.Sleep(time.Until(alarmToday))
+	} else {
+		log.Println("アラーム時間が既に過ぎています。すぐにファイルを削除します。")
+		return
+	}
+
+	// アラーム時間が過ぎたらディレクトリ内のファイルを削除
+	if time.Now().After(alarmToday) && status == 0 {
+		log.Printf("アラーム時間を過ぎています: %s", alarmTime)
+		err := deleteFilesInDirectory(dirPath)
+		if err != nil {
+			log.Printf("ディレクトリ内のファイルの削除に失敗しました: %s", err)
+		} else {
+			log.Printf("ディレクトリ内のファイルを削除しました: %s", dirPath)
+
+			// アラームのステータスを削除済みに更新
+			_, err = db.Exec("UPDATE alarms SET status = 2 WHERE dir_path = ?", dirPath)
+			if err != nil {
+				log.Printf("ステータスの更新に失敗しました: %s", err)
+			}
+		}
 	}
 }
 
-func deleteFilesInDirectory(dir string) error {
-	files, err := filepath.Glob(filepath.Join(dir, "*"))
+// deleteFilesInDirectoryは、指定されたディレクトリ内のすべてのファイルを削除する
+func deleteFilesInDirectory(dirPath string) error {
+	files, err := os.ReadDir(dirPath)
 	if err != nil {
 		return err
 	}
 
 	for _, file := range files {
-		err = os.RemoveAll(file)
+		filePath := filepath.Join(dirPath, file.Name())
+		err := os.Remove(filePath)
 		if err != nil {
-			return err
+			log.Printf("ファイル削除に失敗しました: %v", err)
+		} else {
+			log.Printf("ファイル削除成功: %s", filePath)
 		}
-		fmt.Println("削除されました:", file)
 	}
+
 	return nil
+}
+
+// WakeUpHandlerは、起きた確認を処理するハンドラー
+func WakeUpHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method == http.MethodPost {
+		// 最新のアラームのステータスを確認済みに変更する
+		_, err := db.Exec("UPDATE alarms SET status = 1 WHERE status = 0")
+		if err != nil {
+			log.Println("ステータスの更新に失敗しました: ", err)
+			http.Error(w, "ステータスの更新に失敗しました", http.StatusInternalServerError)
+			return
+		}
+
+		log.Println("起きた確認が完了しました")
+		tmpl.Execute(w, nil)
+	}
 }

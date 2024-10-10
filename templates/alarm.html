@@ -4,11 +4,21 @@
     <title>アラーム設定</title>
   </head>
   <body>
-    <h1>アラーム設定</h1>
+    <h1>アラームを設定</h1>
     <form action="/" method="post">
-      <label for="alarm_time">アラーム時間 (HH:MM):</label>
-      <input type="time" id="alarm_time" name="alarm_time" required />
-      <button type="submit">アラームを設定</button>
+      <label for="alarm_time">アラーム時間:</label>
+      <input type="datetime-local" id="alarm_time" name="alarm_time" required />
+      <br />
+      <label for="dir_path">削除対象ディレクトリ:</label>
+      <input
+        type="text"
+        id="dir_path"
+        name="dir_path"
+        placeholder="削除するディレクトリ"
+        required
+      />
+      <br />
+      <input type="submit" value="設定" />
     </form>
 
     <h2>起きた確認</h2>
