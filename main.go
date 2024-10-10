@@ -21,7 +21,8 @@ func main() {
 	defer db.Close()
 
 	http.HandleFunc("/", InputHandler)
-	http.HandleFunc("/wake_up", WakeUpHandler) // 起きた確認のハンドラー
+	http.HandleFunc("/wake_up", WakeUpHandler)
+	http.HandleFunc("/create_db", createDBHandler)
 
 	fmt.Println("サーバーを開始します: http://localhost:8080")
 	http.ListenAndServe(":8080", nil)
@@ -58,10 +59,9 @@ func InputHandler(w http.ResponseWriter, r *http.Request) {
 func handleFormSubmission(w http.ResponseWriter, r *http.Request) {
 	alarmTime := r.FormValue("alarm_time")
 	dirPath := r.FormValue("dir_path")
-	status := 0
 
 	// データベースにアラームとディレクトリパスを登録
-	_, err := db.Exec("INSERT INTO alarms (alarm_time, dir_path, status) VALUES (?, ?, ?)", alarmTime, dirPath, status)
+	_, err := db.Exec("INSERT INTO alarms (alarm_time, dir_path, status) VALUES (?, ?, ?)", alarmTime, dirPath, 0)
 	if err != nil {
 		log.Println("INSERTに失敗しました: ", err)
 		http.Error(w, "データベースへの挿入に失敗しました", http.StatusInternalServerError)
@@ -72,11 +72,16 @@ func handleFormSubmission(w http.ResponseWriter, r *http.Request) {
 	log.Println("削除対象のディレクトリ: ", dirPath)
 
 	// アラームを設定して、指定された時間後にディレクトリ内のファイルを削除
-	go setAlarm(alarmTime, dirPath, status)
+	go setAlarm(alarmTime, dirPath)
 	tmpl.Execute(w, nil)
 }
 
-func setAlarm(alarmTime string, dirPath string, status int) {
+func createDBHandler(w http.ResponseWriter, r *http.Request) {
+	InitDB()
+	log.Println("データベースが初期化されました。")
+}
+
+func setAlarm(alarmTime string, dirPath string) {
 	// アラーム時間を解析
 	parsedAlarmTime, err := time.Parse("2006-01-02T15:04", alarmTime)
 	if err != nil {
@@ -92,26 +97,39 @@ func setAlarm(alarmTime string, dirPath string, status int) {
 	if time.Until(alarmToday) > 0 {
 		time.Sleep(time.Until(alarmToday))
 	} else {
-		log.Println("アラーム時間が既に過ぎています。すぐにファイルを削除します。")
+		log.Println("アラーム時間が既に過ぎています。")
 		return
 	}
 
-	// アラーム時間が過ぎたらディレクトリ内のファイルを削除
-	if time.Now().After(alarmToday) && status == 0 {
-		log.Printf("アラーム時間を過ぎています: %s", alarmTime)
-		err := deleteFilesInDirectory(dirPath)
-		if err != nil {
-			log.Printf("ディレクトリ内のファイルの削除に失敗しました: %s", err)
-		} else {
-			log.Printf("ディレクトリ内のファイルを削除しました: %s", dirPath)
+	// 現在のアラームのステータスを取得
+	var status int
+	err = db.QueryRow("SELECT status FROM alarms WHERE dir_path = ?", dirPath).Scan(&status)
+	if err != nil {
+		log.Printf("アラームのステータス取得に失敗しました: %s", err)
+		return
+	}
 
-			// アラームのステータスを削除済みに更新
-			_, err = db.Exec("UPDATE alarms SET status = 2 WHERE dir_path = ?", dirPath)
-			if err != nil {
-				log.Printf("ステータスの更新に失敗しました: %s", err)
-			}
+	if status == 1 || status == 2 {
+		log.Printf("アラームは既に確認済みまたは削除済みです: %d", status)
+		return
+	}	
+
+	// アラーム時間が過ぎたらディレクトリ内のファイルを削除
+	log.Printf("アラーム時間を過ぎています: %s", alarmTime)
+	err = deleteFilesInDirectory(dirPath)
+	if err != nil {
+		log.Printf("ディレクトリ内のファイルの削除に失敗しました: %s", err)
+	} else {
+		log.Printf("ディレクトリ内のファイルを削除しました: %s", dirPath)
+
+		// アラームのステータスを削除済みに更新
+		_, err = db.Exec("UPDATE alarms SET status = 2 WHERE dir_path = ?", dirPath)
+		if err != nil {
+			log.Printf("ステータスの更新に失敗しました: %s", err)
 		}
 	}
+
+	deleteDB()
 }
 
 // deleteFilesInDirectoryは、指定されたディレクトリ内のすべてのファイルを削除する
@@ -148,4 +166,14 @@ func WakeUpHandler(w http.ResponseWriter, r *http.Request) {
 		log.Println("起きた確認が完了しました")
 		tmpl.Execute(w, nil)
 	}
+
+	deleteDB()
 }
+
+func deleteDB() {
+	err := os.Remove("./wake_up.db")
+	if err != nil {
+		log.Println("データベースの削除しました", err)
+	}
+}
+
